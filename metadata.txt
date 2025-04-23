@@ -1,0 +1,42 @@
+[general]
+name=현존식생도 플러그인
+qgisMinimumVersion=3.0
+description=현존 식생도를 빠르게 그려주는 플러그인입니다. 
+version=1.0
+author=Wonsuk HUH
+email=your.email@domain.com
+
+about=현존식생도를 산림청이 제공하는 임상도와 1:25000토지피복도를 이용하여 빠르게 제작하는 플러그인입니다. 실행 중에 "메모리 레이어를 생성할 수 없습니다"오류가 생긴다면 QGIS를 한번 껐다 키거나, 다른 일을 하다가 다시 해보시길 바랍니다. (고칠려고 하고 있습니다)
+
+tracker=https://github.com/lily11265/actual_vegetation_map/issues
+repository=https://github.com/lily11265/actual_vegetation_map.git
+# End of mandatory metadata
+
+# Recommended items:
+
+hasProcessingProvider=no
+# Uncomment the following line and add your changelog:
+# changelog=
+
+# Tags are comma separated with spaces allowed
+tags=vector,automation,polygon,merge
+
+homepage=https://github.com/lily11265/actual_vegetation_map/archive/refs/heads/main.zip
+category=Vector
+icon=icon.png
+# experimental flag
+experimental=False
+
+# deprecated flag (applies to the whole plugin, not just a single version)
+deprecated=False
+
+# Since QGIS 3.8, a comma separated list of plugins to be installed
+# (or upgraded) can be specified.
+# Check the documentation for more information.
+# plugin_dependencies=
+
+Category of the plugin: Raster, Vector, Database or Web
+# category=
+
+# If the plugin can run on QGIS Server.
+server=False
