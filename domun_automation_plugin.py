@@ -4,6 +4,7 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QMessageBox, QToolBar
 from qgis.core import *
 from qgis.utils import iface
+from .domun_automation_dialog import DomunAutomationDialog
 import os
 import zipfile
 import glob
@@ -37,7 +38,10 @@ class DomunAutomationPlugin:
         # 툴바를 저장할 변수
         self.toolbar = self.iface.addToolBar('도면 자동화')
         self.toolbar.setObjectName('DomunAutomationToolbar')
-
+        
+        # 다이얼로그 초기화
+        self.dlg = None
+        
     def initGui(self):
         """GUI 초기화"""
         # 메인 실행 액션
@@ -47,21 +51,24 @@ class DomunAutomationPlugin:
             '도면 자동화 실행',
             self.iface.mainWindow()
         )
-        action.triggered.connect(self.run)
+        action.triggered.connect(self.show_dialog)
         action.setEnabled(True)
         action.setStatusTip('도면 자동화 처리를 실행합니다')
         self.toolbar.addAction(action)
         self.iface.addPluginToMenu(self.menu, action)
         self.actions.append(action)
         
-        # 디버그 토글 액션
-        debug_action = QAction(
-            '디버그 모드 토글',
-            self.iface.mainWindow()
-        )
-        debug_action.triggered.connect(self.toggle_debug_mode)
-        self.iface.addPluginToMenu(self.menu, debug_action)
-        self.actions.append(debug_action)
+    def show_dialog(self):
+        """다이얼로그 표시"""
+        if self.dlg is None:
+            self.dlg = DomunAutomationDialog(self.iface.mainWindow())
+            # 실행 요청 시그널 연결
+            self.dlg.run_requested.connect(self.run_with_settings)
+        
+        # 다이얼로그를 표시하기 전에 레이어 목록 갱신
+        self.dlg.refresh_layers()
+        self.dlg.clear_status()
+        self.dlg.show()
 
     def unload(self):
         """플러그인 언로드"""
@@ -78,13 +85,44 @@ class DomunAutomationPlugin:
             self.debug_print(f"플러그인 실행 중 오류: {str(e)}")
             QMessageBox.critical(None, "오류", f"플러그인 실행 중 오류 발생: {str(e)}")
 
-    # 디버그 출력 함수
+    def run_with_settings(self, settings):
+        """다이얼로그에서 받은 설정으로 실행"""
+        try:
+            # 디버그 모드 설정
+            self.debug_mode = settings['debug']
+            
+            # 레이어 선택 확인
+            selected_layer = settings['layer']
+            if not selected_layer:
+                self.dlg.append_status("오류: 레이어를 선택해주세요.")
+                return
+            
+            # 상태 메시지 업데이트
+            self.dlg.append_status(f"선택된 레이어: {selected_layer.name()}")
+            self.dlg.append_status(f"Snakes 설정 - Threshold: {settings['threshold']}, Alpha: {settings['alpha']}, Beta: {settings['beta']}, Iterations: {settings['iterations']}")
+            self.dlg.append_status("처리를 시작합니다...")
+            
+            # 실제 처리 함수 호출
+            self.load_and_process_data(selected_layer, settings)
+            
+        except Exception as e:
+            error_msg = f"플러그인 실행 중 오류: {str(e)}"
+            self.debug_print(error_msg)
+            self.dlg.append_status(error_msg)
+            QMessageBox.critical(None, "오류", error_msg)
+    
     def debug_print(self, message):
         """디버그 모드일 때만 메시지 출력"""
         if self.debug_mode:
             current_time = time.strftime("%H:%M:%S")
-            print(f"[DEBUG {current_time}] {message}")
+            debug_msg = f"[DEBUG {current_time}] {message}"
+            print(debug_msg)
             QgsMessageLog.logMessage(message, 'MergeSmallPolygons', Qgis.Info)
+            
+            # 다이얼로그가 있는 경우 상태 메시지 추가
+            if self.dlg:
+                self.dlg.append_status(debug_msg)
+            
             try:
                 self.iface.messageBar().pushMessage("DEBUG", message, level=Qgis.Info, duration=2)
             except:
@@ -97,10 +135,8 @@ class DomunAutomationPlugin:
         message = f"디버그 모드: {'켜짐' if self.debug_mode else '꺼짐'}"
         print(message)
         self.iface.messageBar().pushMessage("정보", message, level=Qgis.Info)
-
-    # 여기서부터 기존 코드의 함수들을 메서드로 변환
     
-    def load_and_process_data(self):
+    def load_and_process_data(self, active_layer, settings):
         """SHP 파일 불러오기, 라인→폴리곤 변환, 클리핑, 25000 스케일 폴리곤 병합 및 일반화까지 모두 처리"""
         try:
             self.debug_print("함수 실행 시작")
@@ -108,10 +144,9 @@ class DomunAutomationPlugin:
             # 시작 시간 기록
             start_time = time.time()
             
-            # 활성화된 레이어 확인
-            active_layer = self.iface.activeLayer()
-            if not active_layer:
-                self.iface.messageBar().pushMessage("오류", "활성화된 레이어가 없습니다.", level=Qgis.Critical)
+            # 레이어 확인
+            if not active_layer or not active_layer.isValid():
+                self.iface.messageBar().pushMessage("오류", "활성화된 레이어가 없거나 유효하지 않습니다.", level=Qgis.Critical)
                 return
             
             self.debug_print(f"활성화된 레이어: {active_layer.name()}")
@@ -173,9 +208,6 @@ class DomunAutomationPlugin:
                 self.iface.messageBar().pushMessage("경고", "로드된 레이어가 없습니다. 클리핑을 수행할 수 없습니다.", level=Qgis.Warning)
                 return
             
-            # 이후 원본 코드의 나머지 부분을 그대로 사용
-            # (나머지 모든 함수들을 self.메서드명() 형태로 변경)
-            
             # 4. 활성화된 레이어를 폴리곤으로 변환
             self.debug_print("활성화된 레이어를 폴리곤으로 변환 시작")
             if active_layer.geometryType() == QgsWkbTypes.LineGeometry:
@@ -183,9 +215,6 @@ class DomunAutomationPlugin:
             else:
                 self.debug_print("활성화된 레이어가 이미 폴리곤입니다. 변환을 건너뜁니다.")
                 polygon_layer = active_layer
-            
-            # ... 나머지 코드 계속 ...
-            # (원본 코드의 나머지 부분을 모두 포함하되, 함수 호출을 self.메서드명()으로 변경)
             
             if polygon_layer:
                 # 5. 불러온 레이어들을 폴리곤으로 클리핑 (gdal:clipvectorbypolygon 모듈 사용)
@@ -218,9 +247,9 @@ class DomunAutomationPlugin:
                 
                 # 7. 25000 스케일 레이어에만 v.generalize snakes 알고리즘 적용
                 generalized_layers = []
-                for layer in merged_layers:  # merged_layers 사용
+                for layer in merged_layers:
                     self.debug_print(f"25000 스케일 레이어 snakes 알고리즘 적용 시작: {layer.name()}")
-                    generalized_layer = self.apply_snakes_generalization(layer)
+                    generalized_layer = self.apply_snakes_generalization(layer, settings)  # settings 전달
                     if generalized_layer:
                         generalized_layers.append(generalized_layer)
                 
@@ -501,56 +530,55 @@ class DomunAutomationPlugin:
             return None
 
     def line_to_polygon(self, line_layer):
-        """라인 레이어를 폴리곤으로 변환 (qgis:linetopolygons 사용)"""
+        """라인 레이어를 폴리곤으로 변환 (native:linestopolygons 사용)"""
         try:
             self.debug_print("라인을 폴리곤으로 변환 함수 시작")
             
             # 레이어의 이름 가져오기
             layer_name = line_layer.name()
             
-            # 임시 출력 레이어 경로 설정
-            output_polygon = QgsProcessing.TEMPORARY_OUTPUT
-            
-            # qgis:linetopolygons 알고리즘 실행
+            # 라인을 폴리곤으로 변환
             self.debug_print("라인을 폴리곤으로 변환 알고리즘 실행")
             
-            # 알고리즘 존재 확인
-            if "qgis:linestopolygons" not in [alg.id() for alg in QgsApplication.processingRegistry().algorithms()]:
-                self.debug_print("알고리즘 'qgis:linestopolygons'를 찾을 수 없습니다.")
-                # 대체 알고리즘 시도
-                if "native:linestopolygons" in [alg.id() for alg in QgsApplication.processingRegistry().algorithms()]:
-                    self.debug_print("대체 알고리즘 'native:linestopolygons' 사용")
-                    alg_id = "native:linestopolygons"
-                else:
-                    self.iface.messageBar().pushMessage("오류", "라인을 폴리곤으로 변환하는 알고리즘을 찾을 수 없습니다.", level=Qgis.Critical)
-                    return None
-            else:
-                alg_id = "qgis:linestopolygons"
-                
-            result = processing.run(alg_id, {
+            result = processing.run("qgis:linestopolygons", {
                 'INPUT': line_layer,
-                'OUTPUT': output_polygon
+                'OUTPUT': 'TEMPORARY_OUTPUT'
             })
             
-            # 결과 처리 - 타입에 따라 다르게 처리
+            # 결과 처리
             if isinstance(result['OUTPUT'], str):
-                # 문자열(경로)인 경우 QgsVectorLayer 생성
                 self.debug_print("결과가 문자열 경로로 반환됨")
-                vector_layer = QgsVectorLayer(result['OUTPUT'], f"{layer_name}_polygon", "ogr")
-                polygon_layer = QgsProject.instance().addMapLayer(vector_layer)
+                polygon_layer = QgsVectorLayer(result['OUTPUT'], f"{layer_name}_polygon", "ogr")
             else:
-                # 이미 레이어 객체인 경우 이름만 변경하고 맵에 추가
                 self.debug_print("결과가 레이어 객체로 반환됨")
-                result['OUTPUT'].setName(f"{layer_name}_polygon")
-                polygon_layer = QgsProject.instance().addMapLayer(result['OUTPUT'])
+                polygon_layer = result['OUTPUT']
+                polygon_layer.setName(f"{layer_name}_polygon")
             
-            if polygon_layer.featureCount() == 0:
+            # 도형 수정 (fixgeometries) 적용
+            self.debug_print("폴리곤 도형 수정 시작")
+            fixed_result = processing.run("qgis:linestopolygons", {
+                'INPUT': polygon_layer,
+                'METHOD': 1,  # Structure
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
+            
+            # 수정된 결과 처리
+            if isinstance(fixed_result['OUTPUT'], str):
+                fixed_polygon_layer = QgsVectorLayer(fixed_result['OUTPUT'], f"{layer_name}_polygon_fixed", "ogr")
+            else:
+                fixed_polygon_layer = fixed_result['OUTPUT']
+                fixed_polygon_layer.setName(f"{layer_name}_polygon_fixed")
+            
+            # 프로젝트에 추가
+            QgsProject.instance().addMapLayer(fixed_polygon_layer)
+            
+            if fixed_polygon_layer.featureCount() == 0:
                 self.debug_print("변환된 폴리곤 레이어에 피쳐가 없습니다.")
-                self.iface.messageBar().pushMessage("경고", "변환된 폴리곤 레이어에 피쳐가 없습니다. 라인이 폐합되지 않았을 수 있습니다.", level=Qgis.Warning)
+                self.iface.messageBar().pushMessage("경고", "변환된 폴리곤 레이어에 피쳐가 없습니다.", level=Qgis.Warning)
                 return None
             
-            self.debug_print(f"폴리곤 변환 완료. 피쳐 수: {polygon_layer.featureCount()}")
-            return polygon_layer
+            self.debug_print(f"폴리곤 변환 및 도형 수정 완료. 피쳐 수: {fixed_polygon_layer.featureCount()}")
+            return fixed_polygon_layer
         
         except Exception as e:
             self.debug_print(f"라인을 폴리곤으로 변환 중 오류 발생: {str(e)}")
@@ -559,62 +587,98 @@ class DomunAutomationPlugin:
             return None
 
     def clip_layer_with_polygon(self, input_layer, mask_layer):
-        """레이어를 폴리곤으로 클리핑 (gdal:clipvectorbypolygon 사용)"""
+        """레이어를 폴리곤으로 클리핑 (native:clip 사용)"""
         try:
             self.debug_print(f"레이어 클리핑 시작: {input_layer.name()}")
             
             # 레이어의 이름 가져오기
             layer_name = input_layer.name()
             
-            # 임시 출력 레이어 경로 설정
-            output_clipped = QgsProcessing.TEMPORARY_OUTPUT
+            # 입력 레이어 도형 수정
+            self.debug_print(f"입력 레이어 도형 수정: {layer_name}")
+            fixed_input_result = processing.run("native:fixgeometries", {
+                'INPUT': input_layer,
+                'METHOD': 1,  # Structure 
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
             
-            # gdal:clipvectorbypolygon 알고리즘 실행
+            if isinstance(fixed_input_result['OUTPUT'], str):
+                fixed_input_layer = QgsVectorLayer(fixed_input_result['OUTPUT'], f"{layer_name}_fixed", "ogr")
+            else:
+                fixed_input_layer = fixed_input_result['OUTPUT']
+            
+            # 마스크 레이어 도형 수정
+            self.debug_print(f"마스크 레이어 도형 수정: {mask_layer.name()}")
+            fixed_mask_result = processing.run("native:fixgeometries", {
+                'INPUT': mask_layer,
+                'METHOD': 1,  # Structure
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
+            
+            if isinstance(fixed_mask_result['OUTPUT'], str):
+                fixed_mask_layer = QgsVectorLayer(fixed_mask_result['OUTPUT'], f"{mask_layer.name()}_fixed", "ogr")
+            else:
+                fixed_mask_layer = fixed_mask_result['OUTPUT']
+            
+            # 수정된 레이어로 클리핑 실행
             self.debug_print(f"{layer_name} 레이어 클리핑 알고리즘 실행")
+            result = processing.run("native:clip", {
+                'INPUT': fixed_input_layer,
+                'OVERLAY': fixed_mask_layer,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
             
-            # 알고리즘 존재 확인
-            if "gdal:clipvectorbypolygon" not in [alg.id() for alg in QgsApplication.processingRegistry().algorithms()]:
-                self.debug_print("알고리즘 'gdal:clipvectorbypolygon'를 찾을 수 없습니다.")
-                # 대체 알고리즘 시도
-                if "native:clip" in [alg.id() for alg in QgsApplication.processingRegistry().algorithms()]:
-                    self.debug_print("대체 알고리즘 'native:clip' 사용")
-                    result = processing.run("native:clip", {
-                        'INPUT': input_layer,
-                        'OVERLAY': mask_layer,
-                        'OUTPUT': output_clipped
-                    })
-                else:
-                    self.iface.messageBar().pushMessage("오류", "클리핑 알고리즘을 찾을 수 없습니다.", level=Qgis.Critical)
+            # 결과 처리
+            clipped_layer = result['OUTPUT']
+            
+            # 결과가 문자열(경로)인 경우 레이어 객체로 변환
+            if isinstance(clipped_layer, str):
+                self.debug_print("결과가 문자열 경로로 반환됨")
+                clipped_layer = QgsVectorLayer(clipped_layer, f"{layer_name}_clipped", "ogr")
+                
+                if not clipped_layer.isValid():
+                    self.debug_print(f"클리핑된 레이어 로드 실패: {layer_name}")
                     return None
             else:
-                result = processing.run("gdal:clipvectorbypolygon", {
-                    'INPUT': input_layer,
-                    'MASK': mask_layer,
-                    'OPTIONS': '',
-                    'OUTPUT': output_clipped
-                })
+                clipped_layer.setName(f"{layer_name}_clipped")
             
-            # 원본 레이어 제거
-            QgsProject.instance().removeMapLayer(input_layer.id())
+            # 클리핑된 레이어도 도형 수정
+            self.debug_print(f"클리핑된 레이어 도형 수정")
+            fixed_clipped_result = processing.run("native:fixgeometries", {
+                'INPUT': clipped_layer,
+                'METHOD': 1,  # Structure
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            })
             
-            # 결과 처리 - 타입에 따라 다르게 처리
-            if isinstance(result['OUTPUT'], str):
-                # 문자열(경로)인 경우 QgsVectorLayer 생성
-                self.debug_print("결과가 문자열 경로로 반환됨")
-                vector_layer = QgsVectorLayer(result['OUTPUT'], f"{layer_name}_clipped", "ogr")
-                clipped_layer = QgsProject.instance().addMapLayer(vector_layer)
+            if isinstance(fixed_clipped_result['OUTPUT'], str):
+                final_layer = QgsVectorLayer(fixed_clipped_result['OUTPUT'], f"{layer_name}_clipped", "ogr")
             else:
-                # 이미 레이어 객체인 경우 이름만 변경하고 맵에 추가
-                self.debug_print("결과가 레이어 객체로 반환됨")
-                result['OUTPUT'].setName(f"{layer_name}_clipped")
-                clipped_layer = QgsProject.instance().addMapLayer(result['OUTPUT'])
+                final_layer = fixed_clipped_result['OUTPUT']
+                final_layer.setName(f"{layer_name}_clipped")
             
-            if clipped_layer.featureCount() == 0:
-                self.debug_print(f"클리핑 결과 피쳐가 없습니다: {layer_name}")
-                self.iface.messageBar().pushMessage("경고", f"{layer_name}: 클리핑 후 피쳐가 없습니다.", level=Qgis.Warning)
+            # 원본 레이어가 아직 존재하는지 확인하고 제거
+            try:
+                if QgsProject.instance().mapLayer(input_layer.id()):
+                    QgsProject.instance().removeMapLayer(input_layer.id())
+                    self.debug_print(f"원본 레이어 {layer_name} 제거 완료")
+            except RuntimeError:
+                self.debug_print(f"원본 레이어 {layer_name} 제거 중 오류 - 이미 삭제됨")
+            
+            # 최종 레이어를 프로젝트에 추가
+            if final_layer.isValid():
+                QgsProject.instance().addMapLayer(final_layer)
+                feature_count = final_layer.featureCount()
                 
-            self.debug_print(f"클리핑 완료: {clipped_layer.name()}, 피쳐 수: {clipped_layer.featureCount()}")
-            return clipped_layer
+                if feature_count <= 0:
+                    self.debug_print(f"클리핑 결과 피처가 없습니다: {layer_name}")
+                    self.iface.messageBar().pushMessage("경고", f"{layer_name}: 클리핑 후 피처가 없습니다.", level=Qgis.Warning)
+                else:
+                    self.debug_print(f"클리핑 완료: {final_layer.name()}, 피처 수: {feature_count}")
+                
+                return final_layer
+            else:
+                self.debug_print(f"클리핑된 레이어가 유효하지 않음: {layer_name}")
+                return None
         
         except Exception as e:
             self.debug_print(f"레이어 클리핑 중 오류 발생: {str(e)}")
@@ -933,22 +997,28 @@ class DomunAutomationPlugin:
             return layer  # 오류 발생 시 원본 레이어 반환
 
 
-    def apply_snakes_generalization(self, layer):
+    def apply_snakes_generalization(self, layer, settings):
         """25000 스케일 레이어에 GRASS v.generalize의 snakes 알고리즘 적용"""
         try:
             self.debug_print(f"========== Snakes 알고리즘 일반화 시작: {layer.name()} ==========")
             
-            # GRASS v.generalize 파라미터 설정 - 실제 로그 기반
+            # 설정값 사용
+            threshold = settings.get('threshold', 1.0)
+            alpha = settings.get('alpha', 1.0)
+            beta = settings.get('beta', 1.0)
+            iterations = settings.get('iterations', 1)
+            
+            # GRASS v.generalize 파라미터 설정
             params = {
                 'input': layer,
                 'type': [0, 1, 2],  # 0=point, 1=line, 2=boundary
                 'method': 10,  # 10=snakes 알고리즘
-                'threshold': 1.0,  # 임계값
+                'threshold': threshold,  # 사용자 설정값 사용
                 '-l': True,  # 경계선 처리
                 '-t': False,  # 태그 처리
-                'alpha': 1.0,
-                'beta': 1.0,
-                'iterations': 1,
+                'alpha': alpha,  # 사용자 설정값 사용
+                'beta': beta,  # 사용자 설정값 사용
+                'iterations': iterations,  # 사용자 설정값 사용
                 'look_ahead': 7,
                 'reduction': 50,
                 'slide': 0.5,
@@ -1022,11 +1092,23 @@ class DomunAutomationPlugin:
                 self.debug_print("병합할 레이어가 없습니다.")
                 return None
             
+            # 모든 레이어가 유효한지 확인
+            valid_layers = []
+            for layer in layers:
+                if layer.isValid() and layer.featureCount() > 0:
+                    valid_layers.append(layer)
+                else:
+                    self.debug_print(f"유효하지 않은 레이어 건너뜀: {layer.name()}")
+            
+            if not valid_layers:
+                self.debug_print("유효한 레이어가 없습니다.")
+                return None
+            
             # 모든 레이어를 하나로 병합 (속성 유지)
             self.debug_print("모든 5000 스케일 레이어 병합 중...")
             params_merge = {
-                'LAYERS': layers,
-                'CRS': layers[0].crs(),
+                'LAYERS': valid_layers,
+                'CRS': valid_layers[0].crs(),
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }
             
@@ -1035,6 +1117,11 @@ class DomunAutomationPlugin:
             
             if isinstance(merged_layer, str):
                 merged_layer = QgsVectorLayer(merged_layer, "merged_5k", "ogr")
+                if not merged_layer.isValid():
+                    self.debug_print("병합된 레이어가 유효하지 않음")
+                    return None
+            
+            merged_layer.setName("merged_5k")
             
             # GRASS v.clean 실행
             self.debug_print("GRASS v.clean 실행 중...")

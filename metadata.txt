@@ -2,7 +2,7 @@
 name=현존식생도 플러그인
 qgisMinimumVersion=3.0
 description=현존 식생도를 빠르게 그려주는 플러그인입니다. 
-version=1.0
+version=1.4
 author=Wonsuk HUH
 email=your.email@domain.com
 

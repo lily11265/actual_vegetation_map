@@ -20,29 +20,79 @@
  *   (at your option) any later version.                                   *
  *                                                                         *
  ***************************************************************************/
+
+ _____         _    _                        _____         _____ 
+/  ___|       | |  | |                      |  ___|       /  __ \
+\ `--.   ___  | |  | |  ___    ___   _ __   | |__   _ __  | /  \/
+ `--. \ / _ \ | |/\| | / _ \  / _ \ | '_ \  |  __| | '_ \ | |    
+/\__/ /| (_) |\  /\  /| (_) || (_) || | | | | |___ | | | || \__/\
+\____/  \___/  \/  \/  \___/  \___/ |_| |_| \____/ |_| |_| \____/
+                                                                 
+                                                                 
 """
 
+# -*- coding: utf-8 -*-
 import os
-
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
+from qgis.PyQt.QtCore import pyqtSignal
+from qgis.core import QgsProject, QgsWkbTypes
 
-# This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'domun_automation_dialog_base.ui'))
 
-
 class DomunAutomationDialog(QtWidgets.QDialog, FORM_CLASS):
+    
+    # 시그널 정의
+    run_requested = pyqtSignal(dict)
+    
     def __init__(self, parent=None):
         """Constructor."""
         super(DomunAutomationDialog, self).__init__(parent)
-        # Set up the user interface from Designer through FORM_CLASS.
-        # After self.setupUi() you can access any designer object by doing
-        # self.<objectname>, and you can use autoconnect slots - see
-        # http://qt-project.org/doc/qt-4.8/designer-using-a-ui-file.html
-        # #widgets-and-dialogs-with-auto-connect
         self.setupUi(self)
         
+        # 실행 버튼 연결
+        self.runButton.clicked.connect(self.on_run_clicked)
+        
+        # 레이어 콤보박스 초기화
+        self.populate_layer_combo()
+        
+    def populate_layer_combo(self):
+        """벡터 레이어로 콤보박스 채우기"""
+        self.layerComboBox.clear()
+        
+        # 프로젝트의 모든 벡터 레이어 가져오기
+        layers = QgsProject.instance().mapLayers().values()
+        vector_layers = []
+        
+        for layer in layers:
+            if layer.type() == layer.VectorLayer:
+                vector_layers.append(layer)
+                self.layerComboBox.addItem(layer.name(), layer)
+    
+    def on_run_clicked(self):
+        """실행 버튼 클릭 시 호출"""
+        # 선택된 레이어 가져오기
+        current_index = self.layerComboBox.currentIndex()
+        selected_layer = self.layerComboBox.itemData(current_index) if current_index >= 0 else None
+        
+        # 설정값 수집
+        settings = {
+            'layer': selected_layer,
+            'threshold': self.thresholdSpinBox.value() if hasattr(self, 'thresholdSpinBox') else 1.0,
+            'alpha': self.alphaSpinBox.value() if hasattr(self, 'alphaSpinBox') else 1.0,
+            'beta': self.betaSpinBox.value() if hasattr(self, 'betaSpinBox') else 1.0,
+            'iterations': self.iterationsSpinBox.value() if hasattr(self, 'iterationsSpinBox') else 1,
+            'debug': self.debugCheckBox.isChecked() if hasattr(self, 'debugCheckBox') else True
+        }
+        
+        # 실행 요청 시그널 발생
+        self.run_requested.emit(settings)
+    
+    def refresh_layers(self):
+        """레이어 목록 새로고침"""
+        self.populate_layer_combo()
+    
     def append_status(self, message):
         """상태 메시지를 텍스트 에디터에 추가"""
         self.statusTextEdit.append(message)
