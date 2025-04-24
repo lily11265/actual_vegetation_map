@@ -1,0 +1,13 @@
+다운로드 받은 뒤 꼭! "\\허원석\work\문서작업용\파이썬 코드 및 프로그램\BIGdata\Big_data_ground_25000" 에 있는 1:25000 토지 피복도 데이터 전체를 가져가셔서 "domun_automation_plugin\resources\big_data_land_25000" 폴더 안에 넣으셔야 합니다. 
+
+만약 위 폴더로 접속이 안되면 "https://drive.google.com/file/d/1I0ANKLiwPk-v37ij1KTFprXSx8zReJk4/view?usp=sharing" 로 다운로드를 받은 뒤 정확한 폴더("domun_automation_plugin\resources\big_data_land_25000")에 넣어서 이용해주시길 바랍니다. 
+
+install_plugin.bat를 더블 클릭하면 자동으로 플러그인 설치가 진행됩니다. 
+설치가 완료했다고 하면 
+1. QGIS를 껐다가 다시 킵니다. 
+2. 메뉴바에 있는 플러그인 클릭
+3. 플러그인 관리 및 설치 클릭
+4. "설치했습니다"클릭
+5. "현존식생도 플러그인"옆에 있는 체크 박스 클릭
+6. 메뉴바에 소운이엔씨 아이콘 생기는거 확인 후 플러그인 창 닫기
+7. 도면을 불러온 뒤 아이콘 클릭. 그러면 자동으로 진행됩니다. 
